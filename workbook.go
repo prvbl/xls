@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"golang.org/x/text/encoding/charmap"
 	"io"
-	"os"
 	"unicode/utf16"
 )
 
@@ -66,7 +65,7 @@ func (w *WorkBook) addFont(font *FontInfo, buf io.ReadSeeker) {
 
 func (w *WorkBook) addFormat(format *Format) {
 	if w.Formats == nil {
-		os.Exit(1)
+		w.Formats = make(map[uint16]*Format)
 	}
 	w.Formats[format.Head.Index] = format
 }
@@ -74,8 +73,11 @@ func (w *WorkBook) addFormat(format *Format) {
 func (wb *WorkBook) parseBof(buf io.ReadSeeker, b *bof, pre *bof, offset_pre int) (after *bof, after_using *bof, offset int) {
 	after = b
 	after_using = pre
+	offset = offset_pre
 	var bts = make([]byte, b.Size)
-	binary.Read(buf, binary.LittleEndian, bts)
+	if err := binary.Read(buf, binary.LittleEndian, bts); err != nil {
+		return
+	}
 	buf_item := bytes.NewReader(bts)
 	switch b.Id {
 	case 0x809:
@@ -332,6 +334,9 @@ func (w *WorkBook) ReadAllCells(max int) (res [][]string) {
 				}
 				temp := make([][]string, leng)
 				for k, row := range sheet.rows {
+					if row == nil {
+						continue
+					}
 					data := make([]string, 0)
 					if len(row.cols) > 0 {
 						for _, col := range row.cols {
@@ -341,7 +346,9 @@ func (w *WorkBook) ReadAllCells(max int) (res [][]string) {
 							str := col.String(w)
 
 							for i := uint16(0); i < col.LastCol()-col.FirstCol()+1; i++ {
-								data[col.FirstCol()+i] = str[i]
+								if int(i) < len(str) {
+									data[col.FirstCol()+i] = str[i]
+								}
 							}
 						}
 						if leng > int(k) {
