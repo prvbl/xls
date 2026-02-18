@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"golang.org/x/text/encoding/charmap"
 	"io"
-	"os"
 	"unicode/utf16"
 )
 
@@ -66,7 +65,7 @@ func (w *WorkBook) addFont(font *FontInfo, buf io.ReadSeeker) {
 
 func (w *WorkBook) addFormat(format *Format) {
 	if w.Formats == nil {
-		os.Exit(1)
+		panic("workbook: Formats map is nil")
 	}
 	w.Formats[format.Head.Index] = format
 }
