@@ -48,7 +48,9 @@ func TestSSTContinueRichtext(t *testing.T) {
 	writeBIFFRecord(&stream, 0x003C, contData.Bytes())
 
 	wb := &WorkBook{Formats: make(map[uint16]*Format)}
-	wb.Parse(bytes.NewReader(stream.Bytes()))
+	if err := wb.Parse(bytes.NewReader(stream.Bytes())); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
 
 	if len(wb.sst) != 2 {
 		t.Fatalf("expected 2 SST entries, got %d", len(wb.sst))
@@ -87,7 +89,9 @@ func TestSSTContinueRichtextPartial(t *testing.T) {
 	writeBIFFRecord(&stream, 0x003C, contData.Bytes())
 
 	wb := &WorkBook{Formats: make(map[uint16]*Format)}
-	wb.Parse(bytes.NewReader(stream.Bytes()))
+	if err := wb.Parse(bytes.NewReader(stream.Bytes())); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
 
 	if len(wb.sst) != 2 {
 		t.Fatalf("expected 2 SST entries, got %d", len(wb.sst))
@@ -126,7 +130,9 @@ func TestSSTContinuePhonetic(t *testing.T) {
 	writeBIFFRecord(&stream, 0x003C, contData.Bytes())
 
 	wb := &WorkBook{Formats: make(map[uint16]*Format)}
-	wb.Parse(bytes.NewReader(stream.Bytes()))
+	if err := wb.Parse(bytes.NewReader(stream.Bytes())); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
 
 	if len(wb.sst) != 2 {
 		t.Fatalf("expected 2 SST entries, got %d", len(wb.sst))
