@@ -22,10 +22,12 @@ type WorkBook struct {
 	Author         string
 	rs             io.ReadSeeker
 	sst            []string
-	continue_utf16 uint16
-	continue_rich  uint16
-	continue_apsb  uint32
-	dateMode       uint16
+	continue_utf16        uint16
+	continue_rich         uint16
+	continue_apsb         uint32
+	continue_rich_pending uint32 // remaining richtext bytes to skip in CONTINUE
+	continue_apsb_pending uint32 // remaining phonetic bytes to skip in CONTINUE
+	dateMode              uint16
 }
 
 //read workbook from ole2 file
@@ -87,6 +89,38 @@ func (wb *WorkBook) parseBof(buf io.ReadSeeker, b *bof, pre *bof, offset_pre int
 		binary.Read(buf_item, binary.LittleEndian, &wb.Codepage)
 	case 0x3c: // CONTINUE
 		if pre.Id == 0xfc {
+			// Skip pending richtext/phonetic formatting data that overflowed
+			// from the previous record when characters were already complete.
+			if wb.continue_utf16 == 0 && (wb.continue_rich_pending > 0 || wb.continue_apsb_pending > 0) {
+				if wb.continue_rich_pending > 0 {
+					available := int64(buf_item.Len())
+					skip := int64(wb.continue_rich_pending)
+					if skip <= available {
+						buf_item.Seek(skip, io.SeekCurrent)
+						wb.continue_rich_pending = 0
+					} else {
+						buf_item.Seek(0, io.SeekEnd)
+						wb.continue_rich_pending -= uint32(available)
+					}
+				}
+				if wb.continue_apsb_pending > 0 {
+					available := int64(buf_item.Len())
+					skip := int64(wb.continue_apsb_pending)
+					if skip <= available {
+						buf_item.Seek(skip, io.SeekCurrent)
+						wb.continue_apsb_pending = 0
+					} else {
+						buf_item.Seek(0, io.SeekEnd)
+						wb.continue_apsb_pending -= uint32(available)
+					}
+				}
+				if wb.continue_rich_pending == 0 && wb.continue_apsb_pending == 0 {
+					wb.continue_rich = 0
+					wb.continue_apsb = 0
+					offset_pre++
+				}
+			}
+
 			var size uint16
 			var err error
 			if wb.continue_utf16 >= 1 {
@@ -226,27 +260,27 @@ func (w *WorkBook) get_string(buf io.ReadSeeker, size uint16) (res string, err e
 			res = string(runes)
 		}
 		if richtext_num > 0 {
-			var bts []byte
 			var seek_size int64
 			if w.Is5ver {
 				seek_size = int64(2 * richtext_num)
 			} else {
 				seek_size = int64(4 * richtext_num)
 			}
-			bts = make([]byte, seek_size)
-			err = binary.Read(buf, binary.LittleEndian, bts)
-			if err == io.EOF {
+			bts := make([]byte, seek_size)
+			n, readErr := io.ReadFull(buf, bts)
+			if readErr != nil {
 				w.continue_rich = richtext_num
+				w.continue_rich_pending = uint32(seek_size) - uint32(n)
+				err = io.EOF
 			}
-
-			// err = binary.Read(buf, binary.LittleEndian, bts)
 		}
 		if phonetic_size > 0 {
-			var bts []byte
-			bts = make([]byte, phonetic_size)
-			err = binary.Read(buf, binary.LittleEndian, bts)
-			if err == io.EOF {
+			bts := make([]byte, phonetic_size)
+			n, readErr := io.ReadFull(buf, bts)
+			if readErr != nil {
 				w.continue_apsb = phonetic_size
+				w.continue_apsb_pending = phonetic_size - uint32(n)
+				err = io.EOF
 			}
 		}
 	}
