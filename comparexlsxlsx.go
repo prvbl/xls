@@ -20,7 +20,10 @@ func CompareXlsXlsx(xlsfilepathname string, xlsxfilepathname string) string {
 	}
 
 	for sheet, xlsxSheet := range xlsxFile.Sheets {
-		xlsSheet := xlsFile.GetSheet(sheet)
+		xlsSheet, err := xlsFile.GetSheet(sheet)
+		if err != nil {
+			return fmt.Sprintf("Cant get xls sheet: %s", err)
+		}
 		if xlsSheet == nil {
 			return fmt.Sprintf("Cant get xls sheet")
 		}

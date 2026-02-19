@@ -1,5 +1,7 @@
 package xls
 
+import "fmt"
+
 type rowInfo struct {
 	Index    uint16
 	Fcell    uint16
@@ -64,4 +66,42 @@ func (r *Row) LastCol() int {
 //FirstCol Get the number of First Col of the Row.
 func (r *Row) FirstCol() int {
 	return int(r.info.Fcell)
+}
+
+//ColFormatInfo returns the cell type name, XF index, and format number for debugging.
+func (r *Row) ColFormatInfo(i int) (typeName string, xfIdx int, fmtNo uint16) {
+	serial := uint16(i)
+	var ch contentHandler
+	if c, ok := r.cols[serial]; ok {
+		ch = c
+	} else {
+		for _, v := range r.cols {
+			if v.FirstCol() <= serial && v.LastCol() >= serial {
+				ch = v
+				break
+			}
+		}
+	}
+	if ch == nil {
+		return "nil", -1, 0
+	}
+	typeName = fmt.Sprintf("%T", ch)
+	switch c := ch.(type) {
+	case *NumberCol:
+		xfIdx = int(c.Index)
+	case *RkCol:
+		xfIdx = int(c.Xfrk.Index)
+	case *LabelsstCol:
+		xfIdx = int(c.Xf)
+	case *BlankCol:
+		xfIdx = int(c.Xf)
+	case *labelCol:
+		xfIdx = int(c.Xf)
+	default:
+		return typeName, -1, 0
+	}
+	if xfIdx >= 0 && xfIdx < len(r.wb.Xfs) {
+		fmtNo = r.wb.Xfs[xfIdx].formatNo()
+	}
+	return
 }
