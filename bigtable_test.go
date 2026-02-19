@@ -12,7 +12,10 @@ func TestBigTable(t *testing.T) {
 		t.Fatalf("Cant open xls file: %s", err)
 	}
 
-	sheet := xlFile.GetSheet(0)
+	sheet, err := xlFile.GetSheet(0)
+	if err != nil {
+		t.Fatalf("GetSheet failed: %v", err)
+	}
 	if sheet == nil {
 		t.Fatal("Cant get sheet")
 	}

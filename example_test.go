@@ -14,8 +14,9 @@ func ExampleWorkBook_NumSheets() {
 	if xlFile, closer, err := OpenWithCloser("Table.xls", "utf-8"); err == nil {
 		defer closer.Close()
 		for i := 0; i < xlFile.NumSheets(); i++ {
-			sheet := xlFile.GetSheet(i)
-			fmt.Println(sheet.Name)
+			if sheet, err := xlFile.GetSheet(i); err == nil {
+				fmt.Println(sheet.Name)
+			}
 		}
 	}
 }
@@ -24,7 +25,7 @@ func ExampleWorkBook_NumSheets() {
 func ExampleWorkBook_GetSheet() {
 	if xlFile, closer, err := OpenWithCloser("Table.xls", "utf-8"); err == nil {
 		defer closer.Close()
-		if sheet1 := xlFile.GetSheet(0); sheet1 != nil {
+		if sheet1, err := xlFile.GetSheet(0); err == nil && sheet1 != nil {
 			fmt.Print("Total Lines ", sheet1.MaxRow, sheet1.Name)
 			col1 := sheet1.Row(0).Col(0)
 			col2 := sheet1.Row(0).Col(0)

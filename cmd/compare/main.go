@@ -30,7 +30,11 @@ func main() {
 
 	diffs := 0
 	for sheetIdx, xlsxSheet := range xlsxFile.Sheets {
-		xlsSheet := xlsFile.GetSheet(sheetIdx)
+		xlsSheet, err := xlsFile.GetSheet(sheetIdx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sheet %d: error: %v\n", sheetIdx, err)
+			continue
+		}
 		if xlsSheet == nil {
 			fmt.Fprintf(os.Stderr, "sheet %d: missing in xls\n", sheetIdx)
 			continue
