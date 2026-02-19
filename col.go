@@ -5,10 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
-
 	"time"
-
-	yymmdd "github.com/extrame/goyymmdd"
 )
 
 //content type
@@ -43,6 +40,204 @@ func (c *Col) String(wb *WorkBook) []string {
 	return []string{"default"}
 }
 
+// isDateFormat returns true if the format string looks like a date/time format.
+// Checks for unambiguous date tokens (yy, dd, mmm) before number tokens to avoid
+// misclassifying formats like "mm/dd/yyyy" as numeric due to containing "d/y".
+func isDateFormat(fmtLower string) bool {
+	return strings.Contains(fmtLower, "yy") ||
+		strings.Contains(fmtLower, "dd") ||
+		strings.Contains(fmtLower, "mmm")
+}
+
+// isNumberFormat returns true if the format string looks like a number format.
+func isNumberFormat(fmtStr, fmtLower string) bool {
+	return fmtLower == "general" ||
+		strings.Contains(fmtStr, "#") ||
+		strings.Contains(fmtStr, ".00") ||
+		strings.Contains(fmtLower, "h:") ||
+		strings.Contains(fmtLower, "д.г")
+}
+
+// isBuiltinDateFmt returns true if the built-in format number is a date/time format.
+// See http://www.openoffice.org/sc/excelfileformat.pdf Page #174
+func isBuiltinDateFmt(fNo uint16) bool {
+	return 14 <= fNo && fNo <= 22 || 27 <= fNo && fNo <= 36 || 45 <= fNo && fNo <= 58
+}
+
+// countCI counts a case-insensitive run of ch starting at position start in s.
+func countCI(s string, start int, ch byte) int {
+	lower := ch | 0x20
+	n := 0
+	for i := start; i < len(s); i++ {
+		if s[i]|0x20 == lower {
+			n++
+		} else {
+			break
+		}
+	}
+	return n
+}
+
+// excelDateFmtToGo converts an Excel date/time format string to a Go time.Format layout.
+// Handles the context-dependent m/mm token (month after d/y, minutes after h).
+func excelDateFmtToGo(excel string) string {
+	// Use first section only (positive values)
+	if idx := strings.IndexByte(excel, ';'); idx >= 0 {
+		excel = excel[:idx]
+	}
+
+	upper := strings.ToUpper(excel)
+	is12h := strings.Contains(upper, "AM/PM") || strings.Contains(upper, "A/P")
+
+	var result strings.Builder
+	i := 0
+	afterH := false
+
+	for i < len(excel) {
+		c := excel[i]
+		cl := c | 0x20
+
+		switch {
+		case cl == 'y':
+			n := countCI(excel, i, 'y')
+			if n >= 3 {
+				result.WriteString("2006")
+			} else {
+				result.WriteString("06")
+			}
+			afterH = false
+			i += n
+
+		case cl == 'm':
+			n := countCI(excel, i, 'm')
+			if afterH {
+				if n >= 2 {
+					result.WriteString("04")
+				} else {
+					result.WriteString("4")
+				}
+			} else {
+				switch {
+				case n >= 4:
+					result.WriteString("January")
+				case n == 3:
+					result.WriteString("Jan")
+				case n == 2:
+					result.WriteString("01")
+				default:
+					result.WriteString("1")
+				}
+			}
+			i += n
+
+		case cl == 'd':
+			n := countCI(excel, i, 'd')
+			switch {
+			case n >= 4:
+				result.WriteString("Monday")
+			case n == 3:
+				result.WriteString("Mon")
+			case n == 2:
+				result.WriteString("02")
+			default:
+				result.WriteString("2")
+			}
+			afterH = false
+			i += n
+
+		case cl == 'h':
+			n := countCI(excel, i, 'h')
+			if is12h {
+				if n >= 2 {
+					result.WriteString("03")
+				} else {
+					result.WriteString("3")
+				}
+			} else {
+				result.WriteString("15")
+			}
+			afterH = true
+			i += n
+
+		case cl == 's':
+			n := countCI(excel, i, 's')
+			if n >= 2 {
+				result.WriteString("05")
+			} else {
+				result.WriteString("5")
+			}
+			afterH = false
+			i += n
+
+		case cl == 'a':
+			rem := strings.ToUpper(excel[i:])
+			if strings.HasPrefix(rem, "AM/PM") {
+				result.WriteString("PM")
+				i += 5
+			} else if strings.HasPrefix(rem, "A/P") {
+				result.WriteString("PM")
+				i += 3
+			} else {
+				result.WriteByte(c)
+				i++
+			}
+
+		case c == '\\':
+			if i+1 < len(excel) {
+				result.WriteByte(excel[i+1])
+				i += 2
+			} else {
+				i++
+			}
+
+		case c == '"':
+			i++
+			for i < len(excel) && excel[i] != '"' {
+				result.WriteByte(excel[i])
+				i++
+			}
+			if i < len(excel) {
+				i++
+			}
+
+		case c == '[':
+			end := strings.IndexByte(excel[i:], ']')
+			if end >= 0 {
+				i += end + 1
+			} else {
+				i++
+			}
+
+		default:
+			result.WriteByte(c)
+			i++
+		}
+	}
+	return result.String()
+}
+
+// formatBuiltinNumber formats a float according to a built-in number format (1-13).
+func formatBuiltinNumber(f float64, fNo uint16) string {
+	switch fNo {
+	case 1: // 0
+		return strconv.FormatFloat(f, 'f', 0, 64)
+	case 2: // 0.00
+		return strconv.FormatFloat(f, 'f', 2, 64)
+	case 3: // #,##0
+		return strconv.FormatFloat(math.Round(f), 'f', 0, 64)
+	case 4: // #,##0.00
+		return strconv.FormatFloat(f, 'f', 2, 64)
+	case 9: // 0%
+		return strconv.FormatFloat(f*100, 'f', 0, 64) + "%"
+	case 10: // 0.00%
+		return strconv.FormatFloat(f*100, 'f', 2, 64) + "%"
+	case 11: // 0.00E+00
+		return strconv.FormatFloat(f, 'E', 2, 64)
+	default:
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
+}
+
 type XfRk struct {
 	Index uint16
 	Rk    RK
@@ -54,35 +249,39 @@ func (xf *XfRk) String(wb *WorkBook) string {
 		fNo := wb.Xfs[idx].formatNo()
 		if fNo >= 164 { // user defined format
 			if formatter := wb.Formats[fNo]; formatter != nil {
-				formatterLower := strings.ToLower(formatter.str)
-				if formatterLower == "general" ||
-					strings.Contains(formatter.str, "#") ||
-					strings.Contains(formatter.str, ".00") ||
-					strings.Contains(formatterLower, "m/y") ||
-					strings.Contains(formatterLower, "d/y") ||
-					strings.Contains(formatterLower, "m.y") ||
-					strings.Contains(formatterLower, "d.y") ||
-					strings.Contains(formatterLower, "h:") ||
-					strings.Contains(formatterLower, "д.г") {
-					//If format contains # or .00 then this is a number
-					return xf.Rk.String()
-				} else {
+				fmtLower := strings.ToLower(formatter.str)
+				if isDateFormat(fmtLower) {
 					i, f, isFloat := xf.Rk.number()
 					if !isFloat {
 						f = float64(i)
 					}
 					t := timeFromExcelTime(f, wb.dateMode == 1)
-					return yymmdd.Format(t, formatter.str)
+					return t.Format(excelDateFmtToGo(formatter.str))
 				}
+				if isNumberFormat(formatter.str, fmtLower) {
+					return xf.Rk.String()
+				}
+				// unknown user format — try as date
+				i, f, isFloat := xf.Rk.number()
+				if !isFloat {
+					f = float64(i)
+				}
+				t := timeFromExcelTime(f, wb.dateMode == 1)
+				return t.Format(excelDateFmtToGo(formatter.str))
 			}
-			// see http://www.openoffice.org/sc/excelfileformat.pdf Page #174
-		} else if 14 <= fNo && fNo <= 17 || fNo == 22 || 27 <= fNo && fNo <= 36 || 50 <= fNo && fNo <= 58 { // jp. date format
+		} else if isBuiltinDateFmt(fNo) {
 			i, f, isFloat := xf.Rk.number()
 			if !isFloat {
 				f = float64(i)
 			}
 			t := timeFromExcelTime(f, wb.dateMode == 1)
-			return t.Format(time.RFC3339) //TODO it should be international
+			return t.Format(time.RFC3339)
+		} else if fNo >= 1 && fNo <= 13 {
+			i, f, isFloat := xf.Rk.number()
+			if !isFloat {
+				f = float64(i)
+			}
+			return formatBuiltinNumber(f, fNo)
 		}
 	}
 	return xf.Rk.String()
@@ -173,24 +372,23 @@ func (c *NumberCol) String(wb *WorkBook) []string {
 		fNo := wb.Xfs[idx].formatNo()
 		if fNo >= 164 { // user defined format
 			if formatter := wb.Formats[fNo]; formatter != nil {
-				formatterLower := strings.ToLower(formatter.str)
-				if formatterLower == "general" ||
-					strings.Contains(formatter.str, "#") ||
-					strings.Contains(formatter.str, ".00") ||
-					strings.Contains(formatterLower, "m/y") ||
-					strings.Contains(formatterLower, "d/y") ||
-					strings.Contains(formatterLower, "m.y") ||
-					strings.Contains(formatterLower, "d.y") ||
-					strings.Contains(formatterLower, "h:") ||
-					strings.Contains(formatterLower, "д.г") {
+				fmtLower := strings.ToLower(formatter.str)
+				if isDateFormat(fmtLower) {
+					t := timeFromExcelTime(c.Float, wb.dateMode == 1)
+					return []string{t.Format(excelDateFmtToGo(formatter.str))}
+				}
+				if isNumberFormat(formatter.str, fmtLower) {
 					return []string{strconv.FormatFloat(c.Float, 'f', -1, 64)}
 				}
+				// unknown user format — try as date
 				t := timeFromExcelTime(c.Float, wb.dateMode == 1)
-				return []string{yymmdd.Format(t, formatter.str)}
+				return []string{t.Format(excelDateFmtToGo(formatter.str))}
 			}
-		} else if 14 <= fNo && fNo <= 17 || fNo == 22 || 27 <= fNo && fNo <= 36 || 50 <= fNo && fNo <= 58 { // built-in date format
+		} else if isBuiltinDateFmt(fNo) {
 			t := timeFromExcelTime(c.Float, wb.dateMode == 1)
 			return []string{t.Format(time.RFC3339)}
+		} else if fNo >= 1 && fNo <= 13 {
+			return []string{formatBuiltinNumber(c.Float, fNo)}
 		}
 	}
 	return []string{strconv.FormatFloat(c.Float, 'f', -1, 64)}

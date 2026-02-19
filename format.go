@@ -7,3 +7,7 @@ type Format struct {
 	}
 	str string
 }
+
+func (f *Format) String() string {
+	return f.str
+}
